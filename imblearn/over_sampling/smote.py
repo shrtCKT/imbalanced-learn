@@ -15,9 +15,10 @@ from .base import BaseOverSampler
 from ..exceptions import raise_isinstance_error
 from ..utils import check_neighbors_object
 from ..utils.deprecation import deprecate_parameter
+from ..metrics.binary_vdm import BinaryVDM
 
 
-SMOTE_KIND = ('regular', 'borderline1', 'borderline2', 'svm')
+SMOTE_KIND = ('regular', 'borderline1', 'borderline2', 'svm', 'binary')
 
 
 class SMOTE(BaseOverSampler):
@@ -144,6 +145,7 @@ SMOTE # doctest: +NORMALIZE_WHITESPACE
                  out_step=0.5,
                  kind='regular',
                  svm_estimator=None,
+                 knn_metric='vdm',
                  n_jobs=1):
         super(SMOTE, self).__init__(ratio=ratio, random_state=random_state)
         self.kind = kind
@@ -154,6 +156,7 @@ SMOTE # doctest: +NORMALIZE_WHITESPACE
         self.out_step = out_step
         self.svm_estimator = svm_estimator
         self.n_jobs = n_jobs
+        self.metric = knn_metric
 
     def _in_danger_noise(self, samples, target_class, y, kind='danger'):
         """Estimate if a set of sample are in danger or noise.
@@ -247,6 +250,59 @@ SMOTE # doctest: +NORMALIZE_WHITESPACE
         for i, (sample, row, col, step) in enumerate(zip(samples, rows,
                                                          cols, steps)):
             X_new[i] = X[row] - step * (X[row] - nn_data[nn_num[row, col]])
+        y_new = np.array([y_type] * len(X_new))
+
+        return X_new, y_new
+
+    def _make_samples_binary(self,
+                             X,
+                             y_type,
+                             nn_data,
+                             nn_num,
+                             n_samples):
+        """A support function that returns artificial samples constructed 
+        according to SMOTE-N which says to pic a new point where is each 
+        features value is the majority value with in the nearest neighbour 
+        points.
+
+        Parameters
+        ----------
+        X : ndarray, shape (n_samples, n_features)
+            Points from which the points will be created.
+
+        y_type : str or int
+            The minority target value, just so the function can return the
+            target values for the synthetic variables with correct length in
+            a clear format.
+
+        nn_data : ndarray, shape (n_samples_all, n_features)
+            Data set carrying all the neighbours to be used
+
+        nn_num : ndarray, shape (n_samples_all, k_nearest_neighbours)
+            The nearest neighbours of each sample in nn_data.
+
+        n_samples : int
+            The number of samples to generate.
+        Returns
+        -------
+        X_new : ndarray, shape (n_samples_new, n_features)
+            Synthetically generated samples.
+
+        y_new : ndarray, shape (n_samples_new, )
+            Target values for synthetic samples.
+
+        """
+        random_state = check_random_state(self.random_state)
+        X_new = np.zeros((n_samples, X.shape[1]))
+        sample = random_state.randint(
+            low=0, high=X.shape[0], size=n_samples)
+        for i, x_idx in enumerate(sample):
+          neibours_sum = X[nn_num[x_idx]].sum(axis=0)
+          nn_size = int(len(nn_num[x_idx]) / 2.0)
+          neibours_sum[neibours_sum < nn_size] = 0
+          neibours_sum[neibours_sum >= nn_size] = 1
+          X_new[i] = neibours_sum
+
         y_new = np.array([y_type] * len(X_new))
 
         return X_new, y_new
@@ -497,6 +553,37 @@ SMOTE # doctest: +NORMALIZE_WHITESPACE
 
         return X_resampled, y_resampled
 
+    def _sample_binary(self, X, y):
+        """Resample dataset using Binary SMOTE based on SMOTE-N.
+        """
+        # Calculate stats for Value Difference Metric (VDM).
+        metric = None
+        if self.metric == 'vdm':
+            vdm = BinaryVDM()
+            vdm.fit(X, y)
+            metric = vdm.pairwise
+        else:
+            metric = self.metric
+        self.nn_k_.set_params(**{'metric': metric})
+        # For each class find the NN and generate synthetic data.
+        X_resampled = X.copy()
+        y_resampled = y.copy()
+
+        for class_sample, n_samples in self.ratio_.items():
+            if n_samples == 0:
+                continue
+            X_class = X[y == class_sample]
+
+            self.nn_k_.fit(X_class)
+            nns = self.nn_k_.kneighbors(X_class, return_distance=False)[:, 1:]
+            X_new, y_new = self._make_samples_binary(X_class, class_sample,
+                                                     X_class, nns, n_samples)
+
+            X_resampled = np.concatenate((X_resampled, X_new), axis=0)
+            y_resampled = np.concatenate((y_resampled, y_new), axis=0)
+
+        return X_resampled, y_resampled
+
     def _sample(self, X, y):
         """Resample the dataset.
 
@@ -525,3 +612,5 @@ SMOTE # doctest: +NORMALIZE_WHITESPACE
             return self._sample_borderline(X, y)
         elif self.kind == 'svm':
             return self._sample_svm(X, y)
+        elif self.kind == 'binary':
+            return self._sample_binary(X, y)

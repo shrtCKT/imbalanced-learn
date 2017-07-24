@@ -9,9 +9,11 @@ from .classification import specificity_score
 from .classification import geometric_mean_score
 from .classification import make_index_balanced_accuracy
 from .classification import classification_report_imbalanced
+from .binary_vdm import BinaryVDM
 
 __all__ = [
     'sensitivity_specificity_support', 'sensitivity_score',
     'specificity_score', 'geometric_mean_score',
-    'make_index_balanced_accuracy', 'classification_report_imbalanced'
+    'make_index_balanced_accuracy', 'classification_report_imbalanced',
+    'BinaryVDM'
 ]

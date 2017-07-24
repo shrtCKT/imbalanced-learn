@@ -67,3 +67,7 @@ target/
 *.pyproj
 *.suo
 *.vs
+
+
+# IntelliJ
+.idea/

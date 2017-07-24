@@ -21,7 +21,8 @@ SAMPLING_KIND = ('over-sampling', 'under-sampling', 'clean-sampling',
 TARGET_KIND = ('binary', 'multiclass')
 
 
-def check_neighbors_object(nn_name, nn_object, additional_neighbor=0):
+def check_neighbors_object(nn_name, nn_object, additional_neighbor=0,
+                           metric='minkowski'):
     """Check the objects is consistent to be a NN.
 
     Several methods in imblearn relies on NN. Until version 0.4, these
@@ -39,6 +40,8 @@ def check_neighbors_object(nn_name, nn_object, additional_neighbor=0):
 
     additional_neighbor : int, optional (default=0)
         Sometimes, some algorithm need an additional neighbors.
+        
+    metric:  string or callable, default ‘minkowski’
 
     Returns
     -------
@@ -46,7 +49,8 @@ def check_neighbors_object(nn_name, nn_object, additional_neighbor=0):
         The k-NN object.
     """
     if isinstance(nn_object, Integral):
-        return NearestNeighbors(n_neighbors=nn_object + additional_neighbor)
+        return NearestNeighbors(n_neighbors=nn_object + additional_neighbor,
+                                metric=metric)
     elif isinstance(nn_object, KNeighborsMixin):
         return nn_object
     else:
